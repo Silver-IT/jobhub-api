@@ -1,0 +1,51 @@
+version: 2.1
+orbs:
+  node: circleci/node@2.0.1
+  slack: circleci/slack@3.4.2
+jobs:
+  build-and-test:
+    resource_class: xlarge
+    environment:
+      NODE_OPTIONS=--max_old_space_size=16000
+    executor:
+      name: node/default
+    steps:
+      - checkout
+      - node/install-packages
+      - run: npm run lint
+      - run: npm run test
+      - run:
+          name: Get commit messages
+          command: |
+            echo 'export GIT_COMMIT_DESC=$(git log --oneline --format=%B -n 1 HEAD)' >> $BASH_ENV
+            source $BASH_ENV
+      - slack/status:
+          failure_message: ':red_circle: *Failed*: workflow by *${CIRCLE_USERNAME}*\n*Branch name*: ${CIRCLE_BRANCH}\n*Last commit*: ${GIT_COMMIT_DESC}'
+          success_message: ':tada: *Success*: workflow by *${CIRCLE_USERNAME}*\n*Branch name*: ${CIRCLE_BRANCH}\n*Last commit*: ${GIT_COMMIT_DESC}'
+          webhook: https://hooks.slack.com/services/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
+  deploy:
+    resource_class: xlarge
+    executor:
+      name: node/default
+    steps:
+      - add_ssh_keys:
+          fingerprints:
+            - "3072 SHA256:Uc6M/GOckERvGfi2sIY7GYlVC/grczF2yTtmcQ8isAM root@ip-172-31-41-89 (RSA)"
+      - run:
+          name: deploy-prod
+          command: 'ssh -o StrictHostKeyChecking=no ubuntu@ec2-18-208-187-180.compute-1.amazonaws.com "/home/ubuntu/jobs/deploy.sh"'
+      - slack/notify:
+          webhook: https://hooks.slack.com/services/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
+          message: "Successfully deployed to production server"
+          color: "#22863A"
+workflows:
+  build-and-test:
+    jobs:
+      - build-and-test
+      - deploy:
+          requires:
+            - build-and-test
+          filters:
+            branches:
+              only:
+                - prod
